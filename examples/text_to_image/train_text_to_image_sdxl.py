@@ -215,6 +215,16 @@ def parse_args(input_args=None):
             " `args.validation_prompt` multiple times: `args.num_validation_images`."
         ),
     )
+    
+    parser.add_argument(
+        "--validation_steps",
+        type=int,
+        default=1,
+        help=(
+            "Run fine-tuning validation every X steps. The validation process consists of running the prompt"
+            " `args.validation_prompt` multiple times: `args.num_validation_images`."
+        ),
+    )
     parser.add_argument(
         "--max_train_samples",
         type=int,
@@ -1203,6 +1213,72 @@ def main(args):
             if global_step >= args.max_train_steps:
                 break
 
+        
+            if accelerator.is_main_process:
+                if args.validation_prompt is not None and step % args.validation_steps == 0:
+                    logger.info(
+                        f"Running validation... \n Generating {args.num_validation_images} images with prompt:"
+                        f" {args.validation_prompt}."
+                    )
+                    if args.use_ema:
+                        # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
+                        ema_unet.store(unet.parameters())
+                        ema_unet.copy_to(unet.parameters())
+
+                    # create pipeline
+                    vae = AutoencoderKL.from_pretrained(
+                        vae_path,
+                        subfolder="vae" if args.pretrained_vae_model_name_or_path is None else None,
+                        revision=args.revision,
+                        variant=args.variant,
+                    )
+                    pipeline = StableDiffusionXLPipeline.from_pretrained(
+                        args.pretrained_model_name_or_path,
+                        vae=vae,
+                        unet=accelerator.unwrap_model(unet),
+                        revision=args.revision,
+                        variant=args.variant,
+                        torch_dtype=weight_dtype,
+                    )
+                    if args.prediction_type is not None:
+                        scheduler_args = {"prediction_type": args.prediction_type}
+                        pipeline.scheduler = pipeline.scheduler.from_config(pipeline.scheduler.config, **scheduler_args)
+
+                    pipeline = pipeline.to(accelerator.device)
+                    pipeline.set_progress_bar_config(disable=True)
+
+                    # run inference
+                    generator = torch.Generator(device=accelerator.device).manual_seed(args.seed) if args.seed else None
+                    pipeline_args = {"prompt": args.validation_prompt}
+
+                    with autocast_ctx:
+                        images = [
+                            pipeline(**pipeline_args, generator=generator, num_inference_steps=25).images[0]
+                            for _ in range(args.num_validation_images)
+                        ]
+
+                    for tracker in accelerator.trackers:
+                        if tracker.name == "tensorboard":
+                            np_images = np.stack([np.asarray(img) for img in images])
+                            tracker.writer.add_images("validation", np_images, epoch, dataformats="NHWC")
+                        if tracker.name == "wandb":
+                            tracker.log(
+                                {
+                                    "validation": [
+                                        wandb.Image(image, caption=f"{i}: {args.validation_prompt}")
+                                        for i, image in enumerate(images)
+                                    ]
+                                }
+                            )
+
+                    del pipeline
+                    torch.cuda.empty_cache()
+
+                    if args.use_ema:
+                        # Switch back to the original UNet parameters.
+                        ema_unet.restore(unet.parameters())
+                    
+                    
         if accelerator.is_main_process:
             if args.validation_prompt is not None and epoch % args.validation_epochs == 0:
                 logger.info(
