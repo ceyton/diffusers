@@ -1,9 +1,31 @@
 #!/bin/bash
 
+# Function to check if a package is installed and install it if not
+function install_if_not_exists() {
+    PACKAGE_NAME=$1
+    PACKAGE_VERSION=$2
+    pip show $PACKAGE_NAME > /dev/null 2>&1 || pip install $PACKAGE_NAME$PACKAGE_VERSION
+}
+
 # Install necessary packages if not already installed
-pip show xformers > /dev/null 2>&1 || pip install xformers
-pip show bitsandbytes > /dev/null 2>&1 || pip install bitsandbytes
-# pip install torch torchvision --upgrade
+install_if_not_exists xformers ""
+install_if_not_exists bitsandbytes ""
+install_if_not_exists accelerate ">=0.22.0"
+install_if_not_exists torchvision ""
+install_if_not_exists transformers ">=4.25.1"
+install_if_not_exists ftfy ""
+install_if_not_exists tensorboard ""
+install_if_not_exists Jinja2 ""
+install_if_not_exists datasets ""
+install_if_not_exists peft "==0.7.0"
+install_if_not_exists wandb "==0.17.1"
+install_if_not_exists huggingface_hub "==0.23.3"
+
+# Log in to Weights & Biases (wandb)
+wandb login d0b3abd3b3e1eb4e19e56366bbe6dcf50969467d
+
+# Log in to Hugging Face
+echo "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" | huggingface-cli login --token
 
 # Verify CUDA and GPU setup
 echo "CUDA version: $(nvcc --version)"
