@@ -11,7 +11,7 @@ function install_if_not_exists() {
 install_if_not_exists xformers ""
 install_if_not_exists bitsandbytes ""
 install_if_not_exists accelerate ">=0.22.0"
-install_if_not_exists torchvision ""
+install_if_not_exists torchvision "==0.15.2"  # Specifying a compatible version
 install_if_not_exists transformers ">=4.25.1"
 install_if_not_exists ftfy ""
 install_if_not_exists tensorboard ""
